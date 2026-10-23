@@ -30,11 +30,12 @@ export interface SensooAiResponse {
 
 // Strictly loaded from environment variables (Never hardcoded)
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
+const OPENAI_API_KEY = (process.env.EXPO_PUBLIC_OPENAI_API_KEY || '').trim();
 const HF_NATLAS_MODEL = process.env.EXPO_PUBLIC_HF_NATLAS_MODEL || 'NCAIR1/N-ATLaS';
 const HF_API_TOKEN = process.env.EXPO_PUBLIC_HF_API_TOKEN || '';
 
-export const PRIMARY_MODEL = 'gemini-3.8-flash';
-export const FALLBACK_MODEL = 'gemini-3.5-flash-lite';
+export const PRIMARY_MODEL = 'gpt-4o-mini';
+export const FALLBACK_MODEL = 'gemini-2.0-flash';
 export const SOVEREIGN_NATLAS_MODEL = 'NCAIR1/N-ATLaS';
 
 const SYSTEM_INSTRUCTION = `You are Sensoo Agentic AI, Nigeria's frontline consumer verification, clinical safety, and anti-counterfeit intelligence system.
@@ -53,8 +54,174 @@ Your responsibilities:
 9. CRITICAL TOOL RULE: ONLY call 'trigger_camera_scan' if the user explicitly gives a direct command to open the camera scanner right now (e.g. "open scanner", "scan barcode", "open camera"). NEVER call 'trigger_camera_scan' for informational, clinical, first-aid, or advice questions.`;
 
 /**
+ * Primary Agentic Intelligence: OpenAI gpt-4o-mini
+ */
+async function callOpenAiAssistant(
+  userQuery: string,
+  history: AiChatMessage[] = [],
+  contextData?: {
+    scannedCode?: string;
+    productName?: string;
+    scenario?: string;
+    userLocation?: string;
+    language?: string;
+  }
+): Promise<SensooAiResponse | null> {
+  const apiKey = OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  const targetLang = contextData?.language || 'English';
+  const isNigerianVernacular = ['Pidgin', 'Yorùbá', 'Hausa', 'Igbo'].includes(targetLang);
+
+  let systemPrompt = SYSTEM_INSTRUCTION;
+  if (contextData?.productName || contextData?.scannedCode || contextData?.scenario) {
+    systemPrompt += `\n[Active Scan Context: Product="${contextData.productName || 'Unknown'}", Barcode="${contextData.scannedCode || 'N/A'}", VerificationVerdict="${contextData.scenario || 'UNKNOWN'}", Location="${contextData.userLocation || 'Nigeria'}", Language="${targetLang}"]`;
+  }
+  if (isNigerianVernacular) {
+    systemPrompt += `\n[CRITICAL: The user has selected Nigerian ${targetLang}. Respond naturally and fluently in authentic Nigerian ${targetLang} using local cultural idioms and deep empathy.]`;
+  }
+
+  const messages: any[] = [
+    { role: 'system', content: systemPrompt },
+  ];
+
+  for (const m of history.slice(-8)) {
+    messages.push({
+      role: m.role === 'model' ? 'assistant' : 'user',
+      content: m.content,
+    });
+  }
+
+  messages.push({ role: 'user', content: userQuery });
+
+  const tools = [
+    {
+      type: 'function',
+      function: {
+        name: 'trigger_camera_scan',
+        description: 'Opens the hardware camera barcode scanner. Call this ONLY when the user explicitly commands to open the scanner or scan a barcode right now (e.g. "open camera", "scan barcode", "let me scan"). NEVER call this tool for general questions, clinical advice, or safety guidance.',
+        parameters: { type: 'object', properties: {} },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'find_nearby_clinics',
+        description: 'Searches and displays live verified clinics, hospitals, or emergency centers. Call this when the user asks for nearby clinics, hospitals, medical help, or reports feeling sick or poisoned.',
+        parameters: {
+          type: 'object',
+          properties: {
+            urgency: { type: 'string', description: 'Urgency level: emergency, high, or routine.' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'submit_fraud_report',
+        description: 'Dispatches an official counterfeit fraud incident report to NAFDAC Sentinel surveillance. Call this when the user asks to report a fake/counterfeit product or suspicious seller/market.',
+        parameters: {
+          type: 'object',
+          properties: {
+            productName: { type: 'string', description: 'The name of the flagged product being reported.' },
+            location: { type: 'string', description: 'Market, store, street, or city where the item was seen or bought.' },
+            details: { type: 'string', description: 'Brief description of the complaint or reason for reporting.' },
+          },
+          required: ['productName'],
+        },
+      },
+    },
+  ];
+
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000);
+
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages,
+        tools,
+        tool_choice: 'auto',
+        temperature: 0.35,
+        max_tokens: 600,
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.warn(`[Sensoo AI] OpenAI gpt-4o-mini HTTP error:`, errText);
+      return null;
+    }
+
+    const data = await res.json();
+    const choice = data.choices?.[0];
+    if (!choice) return null;
+
+    const message = choice.message;
+    const toolCalls = message.tool_calls;
+    let action: 'SCAN' | 'REPORT' | 'NONE' = 'NONE';
+    let reportArgs: any = undefined;
+    let reply = message.content?.trim() || '';
+
+    if (toolCalls && toolCalls.length > 0) {
+      const toolCall = toolCalls[0];
+      const fnName = toolCall.function?.name;
+      let args: any = {};
+      try {
+        args = JSON.parse(toolCall.function?.arguments || '{}');
+      } catch (_e) {}
+
+      if (fnName === 'trigger_camera_scan') {
+        action = 'SCAN';
+        reply = reply || 'Opening the scanner for you now...';
+      } else if (fnName === 'find_nearby_clinics') {
+        reply = reply || 'Locating verified medical facilities near your current coordinates right now...';
+      } else if (fnName === 'submit_fraud_report') {
+        action = 'REPORT';
+        reportArgs = {
+          productName: args.productName,
+          location: args.location,
+          details: args.details,
+        };
+        reply = reply || `Filing official counterfeit incident report for ${args.productName || 'flagged product'} to NAFDAC Sentinel...`;
+      }
+    }
+
+    if (!reply && action === 'NONE') {
+      reply = 'I am Sensoo AI, your product safety assistant. How can I help you today?';
+    }
+
+    const modelTag = isNigerianVernacular
+      ? `${SOVEREIGN_NATLAS_MODEL} + gpt-4o-mini`
+      : 'OpenAI gpt-4o-mini';
+
+    return {
+      success: true,
+      reply,
+      action,
+      reportArgs,
+      modelUsed: modelTag,
+      languageUsed: targetLang,
+    };
+  } catch (err: any) {
+    console.error(`[Sensoo AI] OpenAI call failed:`, err?.message);
+    return null;
+  }
+}
+
+/**
  * Call Sensoo Agentic AI with Dual-Brain Orchestration:
- * NCAIR1/N-ATLaS (Nigerian Languages) + Gemini 3.1 / 2.5 Flash Lite
+ * Primary: OpenAI gpt-4o-mini + Sovereign N-ATLaS
+ * Fallbacks: Groq LLaMA-3.3-70B -> Gemini -> Localized Sovereign Engine
  */
 export async function sendAgentMessage(
   userQuery: string,
@@ -68,86 +235,56 @@ export async function sendAgentMessage(
   }
 ): Promise<SensooAiResponse> {
   const targetLang = contextData?.language || 'English';
-  const isNigerianVernacular = ['Pidgin', 'Yorùbá', 'Hausa', 'Igbo'].includes(targetLang);
 
-  // System instruction / Context
-  let contextualPrefix = '';
-  if (contextData?.productName || contextData?.scannedCode || contextData?.scenario) {
-    contextualPrefix = `[Active Context: Product="${contextData.productName || 'Unknown'}", Code="${contextData.scannedCode || 'N/A'}", Status="${contextData.scenario || 'UNKNOWN'}", Location="${contextData.userLocation || 'Current Location'}", Language="${targetLang}"]\n`;
-  }
-
-  if (isNigerianVernacular) {
-    contextualPrefix += `[N-ATLaS Direct Directive: Respond fluently and naturally in authentic Nigerian ${targetLang}. Use natural local idioms and empathy.]\n\n`;
-  }
-
-  const contents: any[] = [];
-
-  // Conversation history
-  for (const msg of history) {
-    contents.push({
-      role: msg.role === 'model' ? 'model' : 'user',
-      parts: [{ text: msg.content }],
-    });
-  }
-
-  // Append new user message
-  contents.push({
-    role: 'user',
-    parts: [{ text: contextualPrefix + userQuery }],
-  });
-
-  const modelTag = isNigerianVernacular
-    ? `${SOVEREIGN_NATLAS_MODEL} + ${PRIMARY_MODEL}`
-    : PRIMARY_MODEL;
-
-  // 1. Try Primary Model (gemini-3.8-flash)
+  // 1. PRIMARY: OpenAI gpt-4o-mini (Blazing fast, conversational, multi-turn, tool-calling)
   try {
-    const res = await callGeminiModel(PRIMARY_MODEL, contents);
-    return {
-      success: true,
-      reply: res.reply,
-      action: res.action as 'SCAN' | 'REPORT' | 'NONE',
-      reportArgs: res.reportArgs,
-      modelUsed: modelTag,
-      languageUsed: targetLang,
-    };
-  } catch (primaryErr: any) {
-    console.warn(`[Sensoo AI] Primary model (${PRIMARY_MODEL}) failed, trying fallback (${FALLBACK_MODEL}):`, primaryErr?.message);
-
-    // Try MSFLib FastAPI Backend AI Endpoint first if server available
-    try {
-      const backendAiRes = await callMsfLibBackendAi(userQuery, contextData);
-      if (backendAiRes) {
-        return backendAiRes;
-      }
-    } catch (_ignored) {}
-
-    // 2. Try Fallback Model (gemini-3.6-flash)
-    try {
-      const fallbackRes = await callGeminiModel(FALLBACK_MODEL, contents);
-      return {
-        success: true,
-        reply: fallbackRes.reply,
-        action: fallbackRes.action as 'SCAN' | 'REPORT' | 'NONE',
-        reportArgs: fallbackRes.reportArgs,
-        modelUsed: isNigerianVernacular ? `${SOVEREIGN_NATLAS_MODEL} + ${FALLBACK_MODEL}` : FALLBACK_MODEL,
-        languageUsed: targetLang,
-      };
-    } catch (fallbackErr: any) {
-      // 3. Try Groq LLaMA 3.3 Ultra-Low Latency Assistant
-      try {
-        const groqRes = await callGroqAssistant(userQuery, history, contextData);
-        if (groqRes) {
-          return groqRes;
-        }
-      } catch (_gErr) {}
-
-      console.error(`[Sensoo AI] Cloud endpoints failed, using sovereign N-ATLaS fallback cache:`, fallbackErr?.message);
-
-      // 4. Graceful offline smart response localized to Nigerian language
-      return generateLocalizedSmartReply(userQuery, targetLang, contextData);
+    const openAiRes = await callOpenAiAssistant(userQuery, history, contextData);
+    if (openAiRes && openAiRes.reply) {
+      return openAiRes;
     }
+  } catch (openAiErr: any) {
+    console.warn(`[Sensoo AI] OpenAI gpt-4o-mini failed, trying fallbacks:`, openAiErr?.message);
   }
+
+  // 2. Ultra-Fast Groq AI Assistant Fallback
+  try {
+    const groqRes = await callGroqAssistant(userQuery, history, contextData);
+    if (groqRes && groqRes.reply) {
+      return groqRes;
+    }
+  } catch (_gErr) {}
+
+  // 3. Google Gemini Model Fallback
+  if (GEMINI_API_KEY) {
+    try {
+      const contents: any[] = [];
+      for (const msg of history) {
+        contents.push({
+          role: msg.role === 'model' ? 'model' : 'user',
+          parts: [{ text: msg.content }],
+        });
+      }
+      contents.push({
+        role: 'user',
+        parts: [{ text: userQuery }],
+      });
+
+      const res = await callGeminiModel(FALLBACK_MODEL, contents);
+      if (res && res.reply) {
+        return {
+          success: true,
+          reply: res.reply,
+          action: res.action as 'SCAN' | 'REPORT' | 'NONE',
+          reportArgs: res.reportArgs,
+          modelUsed: FALLBACK_MODEL,
+          languageUsed: targetLang,
+        };
+      }
+    } catch (_gemErr) {}
+  }
+
+  // 4. Graceful Sovereign N-ATLaS smart responder (no generic static mock)
+  return generateLocalizedSmartReply(userQuery, targetLang, contextData);
 }
 
 const LIVE_AI_BACKEND_URL = (
