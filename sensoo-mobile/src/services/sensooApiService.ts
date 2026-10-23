@@ -985,6 +985,13 @@ export function validateGs1Barcode(barcode: string): {
     const ean13 = digits.length === 14 ? digits.slice(1) : digits;
     prefix = ean13.slice(0, 3);
     if (prefix.startsWith('615')) country = 'Nigeria';
+    else if (prefix === '890') country = 'India';
+    else if (prefix >= '000' && prefix <= '139') country = 'United States';
+    else if (prefix >= '300' && prefix <= '379') country = 'France';
+    else if (prefix >= '400' && prefix <= '440') country = 'Germany';
+    else if (prefix >= '490' && prefix <= '499') country = 'Japan';
+    else if (prefix >= '500' && prefix <= '509') country = 'United Kingdom';
+    else if (prefix >= '690' && prefix <= '699') country = 'China';
   } else if (digits.length === 12) {
     prefix = `0${digits.slice(0, 2)}`;
   }
