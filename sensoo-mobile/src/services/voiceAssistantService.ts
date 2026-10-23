@@ -338,10 +338,16 @@ export const transcribeAudioWithGroq = async (audioUri: string): Promise<string>
 
   if (!apiKey || !audioUri) {
     console.warn('[VoiceAssistant] Missing Groq API key or audio URI, skipping cloud transcription');
-    throw new Error('Groq API key or audio URI missing');
+    return '';
   }
 
   try {
+    const fileInfo = await FileSystem.getInfoAsync(audioUri);
+    if (!fileInfo.exists || ((fileInfo as any).size !== undefined && (fileInfo as any).size < 200)) {
+      console.log('[VoiceAssistant] Audio file empty or too short (<200 bytes), skipping transcription');
+      return '';
+    }
+
     const uploadResult = await FileSystem.uploadAsync(
       'https://api.groq.com/openai/v1/audio/transcriptions',
       audioUri,
@@ -363,15 +369,15 @@ export const transcribeAudioWithGroq = async (audioUri: string): Promise<string>
     );
 
     if (uploadResult.status < 200 || uploadResult.status >= 300) {
-      console.warn(`[VoiceAssistant] Groq transcription failed [${uploadResult.status}]:`, uploadResult.body);
-      throw new Error(`Groq HTTP ${uploadResult.status}: ${uploadResult.body}`);
+      console.warn(`[VoiceAssistant] Groq transcription HTTP ${uploadResult.status}:`, uploadResult.body);
+      return '';
     }
 
     const data = JSON.parse(uploadResult.body);
     return data?.text || '';
   } catch (err) {
     console.warn('[VoiceAssistant] Groq Whisper network error:', err);
-    throw err;
+    return '';
   }
 };
 

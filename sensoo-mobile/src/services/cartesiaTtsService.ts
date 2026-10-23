@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import * as Speech from 'expo-speech';
 
-const CARTESIA_API_KEY = process.env.EXPO_PUBLIC_CARTESIA_API_KEY || '';
+const CARTESIA_API_KEY = (process.env.EXPO_PUBLIC_CARTESIA_API_KEY || '').trim();
 const BACKEND_API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://sensoo-app-final-2.onrender.com/api/v1';
 
 export const CARTESIA_VOICES = {

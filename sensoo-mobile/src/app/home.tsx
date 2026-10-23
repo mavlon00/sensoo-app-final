@@ -503,6 +503,17 @@ export default function HomeScreen() {
 
   React.useEffect(() => {
     const unsub = subscribeVoiceAssistantSettings((s) => setVoiceSettings(s));
+    // Pre-warm audio permissions and mode so first voice tap is instantaneous and error-free
+    requestRecordingPermissionsAsync()
+      .then((perm) => {
+        if (perm.granted) {
+          setAudioModeAsync({
+            allowsRecording: true,
+            playsInSilentMode: true,
+          }).catch(() => {});
+        }
+      })
+      .catch(() => {});
     return unsub;
   }, []);
 
@@ -554,35 +565,20 @@ export default function HomeScreen() {
 
       if (recordedUri && !isTranscribingRef.current) {
         isTranscribingRef.current = true;
-        setVoiceNotice('Processing voice...');
         try {
           const transcript = await transcribeAudioWithGroq(recordedUri);
           console.log('[VoiceAssistant] Groq Whisper transcript:', transcript);
           if (transcript && transcript.trim().length > 0) {
             handleVoiceCommand(transcript.trim());
-          } else {
-            // User did not say anything or stayed silent
-            setVoiceNotice('No speech detected');
-            setTimeout(() => {
-              setVoiceNotice((prev) => (prev === 'No speech detected' ? null : prev));
-            }, 2000);
           }
         } catch (err: any) {
           console.warn('[VoiceAssistant] Groq Whisper transcription error:', err);
-          const errMsg = err?.message?.includes('missing') ? 'Voice key missing' : 'Could not process audio';
-          setVoiceNotice(errMsg);
-          setTimeout(() => {
-            setVoiceNotice((prev) => (prev === errMsg ? null : prev));
-          }, 2500);
         } finally {
           isTranscribingRef.current = false;
         }
-      } else {
-        setVoiceNotice(null);
       }
     } catch (err) {
       console.warn('[VoiceAssistant] Error stopping recording:', err);
-      setVoiceNotice(null);
     }
   };
 
@@ -605,20 +601,18 @@ export default function HomeScreen() {
       });
 
       console.log('[VoiceAssistant] Listening to voice...');
-      setVoiceNotice(null);
       await audioRecorder.prepareToRecordAsync(RecordingPresets.HIGH_QUALITY);
       audioRecorder.record();
       setIsVoiceListening(true);
 
-      // Auto-stop after 3.5s of speech and process automatically (no need to tap again)
+      // Auto-stop after 1.8s of speech and process automatically (snappy, no long wait)
       if (autoStopTimerRef.current) clearTimeout(autoStopTimerRef.current);
       autoStopTimerRef.current = setTimeout(() => {
         stopAndExecuteVoice();
-      }, 3500);
+      }, 1800);
     } catch (err) {
       console.warn('[VoiceAssistant] Error starting voice recording:', err);
       setIsVoiceListening(false);
-      setVoiceNotice(null);
     }
   };
 
@@ -632,141 +626,79 @@ export default function HomeScreen() {
     const userName = currentUser?.fullName ? currentUser.fullName.trim().split(' ')[0] : 'there';
     const shouldSpeak = Boolean(voiceSettings.voiceReplyEnabled);
 
-    // 0. Greeting / Wake Word in-place
+    // 0. Greeting / Wake Word in-place - snappy, short, zero text bubble
     if (parsed.intent === 'GREETING') {
-      const greetingNotice = `Hello, ${userName}!`;
-      const greetingVoice = `Hello, ${userName}! How can I help you today? You can say scan product, view history, or check alerts.`;
-      setVoiceNotice(greetingNotice);
+      const greetingVoice = `Hello, ${userName}! How can I help you?`;
       if (shouldSpeak) {
         speakWithCartesia(greetingVoice);
       }
-      setTimeout(() => {
-        setVoiceNotice((prev) => (prev === greetingNotice ? null : prev));
-      }, 5000);
       return;
     } else if (parsed.intent === 'SCAN') {
-      setVoiceNotice('Opening scanner...');
       if (shouldSpeak) {
         speakWithCartesia('Opening scanner');
       }
       router.push('/scanner');
     } else if (parsed.intent === 'HISTORY') {
-      setVoiceNotice('Opening scan history...');
       if (shouldSpeak) {
-        speakWithCartesia('Opening recent scan history');
+        speakWithCartesia('Opening scan history');
       }
       setActiveView('RecentScans');
-      setTimeout(() => {
-        setVoiceNotice(null);
-      }, 3500);
     } else if (parsed.intent === 'ALERTS') {
-      setVoiceNotice('Opening safety alerts...');
       if (shouldSpeak) {
-        speakWithCartesia('Opening drug and safety alerts');
+        speakWithCartesia('Opening alerts');
       }
       setActiveView('Alerts');
-      setTimeout(() => {
-        setVoiceNotice(null);
-      }, 3500);
     } else if (parsed.intent === 'PROFILE') {
-      setVoiceNotice('Opening profile...');
       if (shouldSpeak) {
-        speakWithCartesia('Opening your profile');
+        speakWithCartesia('Opening profile');
       }
       setActiveView('Profile');
-      setTimeout(() => {
-        setVoiceNotice(null);
-      }, 3500);
     } else if (parsed.intent === 'NOTIFICATIONS') {
-      setVoiceNotice('Opening notifications...');
       if (shouldSpeak) {
         speakWithCartesia('Opening notifications');
       }
       setPreviousView(activeView);
       setActiveView('Notifications');
-      setTimeout(() => {
-        setVoiceNotice(null);
-      }, 3500);
     } else if (parsed.intent === 'PERSONAL_INFO') {
-      setVoiceNotice('Opening personal info...');
       if (shouldSpeak) {
         speakWithCartesia('Opening personal information');
       }
       setShowPersonalInfoModal(true);
-      setTimeout(() => {
-        setVoiceNotice(null);
-      }, 3500);
     } else if (parsed.intent === 'PRIVACY_SECURITY') {
-      setVoiceNotice('Opening privacy settings...');
       if (shouldSpeak) {
-        speakWithCartesia('Opening privacy and security');
+        speakWithCartesia('Opening privacy');
       }
       router.push('/privacy-security' as any);
-      setTimeout(() => {
-        setVoiceNotice(null);
-      }, 3500);
     } else if (parsed.intent === 'LOCATION_REGION') {
-      setVoiceNotice('Opening location settings...');
       if (shouldSpeak) {
         speakWithCartesia('Opening location settings');
       }
       router.push('/location-region' as any);
-      setTimeout(() => {
-        setVoiceNotice(null);
-      }, 3500);
     } else if (parsed.intent === 'ABOUT') {
-      setVoiceNotice('Opening About Sensoo...');
       if (shouldSpeak) {
         speakWithCartesia('Opening About Sensoo');
       }
       router.push('/about-sensoo' as any);
-      setTimeout(() => {
-        setVoiceNotice(null);
-      }, 3500);
     } else if (parsed.intent === 'CLINIC') {
-      // In-place vocal response - does not open chat
-      const clinicNotice = 'Finding nearby clinics...';
-      const clinicVoice = 'To view accredited healthcare centers, you can browse verified clinics or tap the Agent tab.';
-      setVoiceNotice(clinicNotice);
+      const clinicVoice = 'To view accredited healthcare centers, browse verified clinics or tap the Agent tab.';
       if (shouldSpeak) {
         speakWithCartesia(clinicVoice);
       }
-      setTimeout(() => {
-        setVoiceNotice((prev) => (prev === clinicNotice ? null : prev));
-      }, 5000);
     } else if (parsed.intent === 'REPORT') {
-      // In-place vocal response - does not open chat
-      const reportNotice = 'Reporting fake product...';
       const reportVoice = 'To file a counterfeit drug report, open any scan from your history and tap Report to NAFDAC.';
-      setVoiceNotice(reportNotice);
       if (shouldSpeak) {
         speakWithCartesia(reportVoice);
       }
-      setTimeout(() => {
-        setVoiceNotice((prev) => (prev === reportNotice ? null : prev));
-      }, 5000);
     } else if (parsed.intent === 'GUIDANCE') {
-      // In-place vocal guidance - never redirects to chat
-      const guideNotice = 'Sensoo Voice Assistant';
-      const guideVoice = `I can help you scan products, browse recall alerts, or view your scan history. Try saying 'Scan product' or 'Show alerts'.`;
-      setVoiceNotice(guideNotice);
+      const guideVoice = `I can help you scan products, browse recall alerts, or view your scan history. Try saying Scan product.`;
       if (shouldSpeak) {
         speakWithCartesia(guideVoice);
       }
-      setTimeout(() => {
-        setVoiceNotice((prev) => (prev === guideNotice ? null : prev));
-      }, 5000);
     } else {
-      // General in-place fallback - stays on the current screen
-      const fallbackNotice = `Voice ready: ${userName}`;
-      const fallbackVoice = `How can I help you today, ${userName}? You can say 'Scan product', 'Check alerts', or 'View history'.`;
-      setVoiceNotice(fallbackNotice);
+      const fallbackVoice = `How can I help you today, ${userName}? You can say Scan product, Check alerts, or View history.`;
       if (shouldSpeak) {
         speakWithCartesia(fallbackVoice);
       }
-      setTimeout(() => {
-        setVoiceNotice((prev) => (prev === fallbackNotice ? null : prev));
-      }, 5000);
     }
   };
 
@@ -2573,11 +2505,10 @@ export default function HomeScreen() {
                 style={[
                   styles.heartPumpBadgeText,
                   isVoiceListening && { color: '#A7F3D0', fontWeight: '800' },
-                  Boolean(voiceNotice) && { color: '#6EE7B7' },
                 ]}
                 numberOfLines={1}
               >
-                {isVoiceListening ? 'Listening...' : (voiceNotice || 'Hey Sensoo')}
+                {isVoiceListening ? 'Listening...' : 'Hey Sensoo'}
               </Text>
             </View>
           </TouchableOpacity>
