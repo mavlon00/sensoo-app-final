@@ -493,7 +493,7 @@ export async function lookupLiveGtinWeb(
     if (!openAiKey || !frameBase64) return null;
     try {
       const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 10000);
+      const timeout = setTimeout(() => ctrl.abort(), 3500);
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -559,7 +559,7 @@ export async function lookupLiveGtinWeb(
     const braveOpenAiSubtask = (async () => {
       try {
         const bCtrl = new AbortController();
-        const bTimeout = setTimeout(() => bCtrl.abort(), 8000);
+        const bTimeout = setTimeout(() => bCtrl.abort(), 3500);
         const bRes = await fetch(`https://search.brave.com/search?q=${encodeURIComponent(alt12 + ' Nigeria pharmacy OR NAFDAC OR product')}`, {
           headers: {
             'User-Agent':
@@ -582,7 +582,7 @@ export async function lookupLiveGtinWeb(
         if (lines.length === 0) return null;
 
         const aiCtrl = new AbortController();
-        const aiTimeout = setTimeout(() => aiCtrl.abort(), 6000);
+        const aiTimeout = setTimeout(() => aiCtrl.abort(), 3500);
         const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -628,12 +628,12 @@ export async function lookupLiveGtinWeb(
     return await braveOpenAiSubtask;
   })();
 
-  // Task B: Groq Live Browser Search (openai/gpt-oss-20b with built-in browser_search tool — 12s timeout)
+  // Task B: Groq Live Browser Search (openai/gpt-oss-20b with built-in browser_search tool — 4.5s timeout)
   const groqSearchTask = (async () => {
     if (!groqKey) return null;
     try {
       const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 12000);
+      const timeout = setTimeout(() => ctrl.abort(), 4500);
       const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -682,7 +682,7 @@ export async function lookupLiveGtinWeb(
     return null;
   })();
 
-  // Task C1: Gemini 2.5 Flash with Live Google Search Grounding (thinkingBudget: 0)
+  // Task C1: Gemini 3.8 Flash with Live Google Search Grounding
   const geminiSearchTask = (async () => {
     if (!geminiKey) return null;
     try {
@@ -693,7 +693,7 @@ export async function lookupLiveGtinWeb(
         : `Search Nigerian registered pharmacies (Medplus, HealthPlus, KunleAra, Mopheth, DrugStoc), NAFDAC Greenbook, EMDEX, and global retail catalogs for exact barcode/EAN/UPC ${variantQueryText}.`;
 
       const gSearchCtrl = new AbortController();
-      const gSearchTimeout = setTimeout(() => gSearchCtrl.abort(), 10000);
+      const gSearchTimeout = setTimeout(() => gSearchCtrl.abort(), 4500);
       const gSearchRes = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`,
         {
@@ -752,7 +752,7 @@ export async function lookupLiveGtinWeb(
     if (!geminiKey || !frameBase64) return null;
     try {
       const vCtrl = new AbortController();
-      const vTimeout = setTimeout(() => vCtrl.abort(), 10000);
+      const vTimeout = setTimeout(() => vCtrl.abort(), 3500);
       const vRes = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`,
         {
@@ -1134,18 +1134,19 @@ export async function verifyScanOnline(
   const offPromise = lookupOpenFoodFacts(cleanCode);
   const upcPromise = lookupUpcItemDb(cleanCode);
   const emdexPromise = lookupEmdexDrug(cleanCode);
+  // Start web search / vision in background, but don't block fast registries on it
   const webHitPromise = lookupLiveGtinWeb(cleanCode);
 
-  const [gs1Hit, nafdacRes, rawBackendData, offHit, upcHit, emdexHit, webHit] = await Promise.all([
+  const [gs1Hit, nafdacRes, rawBackendData, offHit, upcHit, emdexHit] = await Promise.all([
     gs1Promise,
     nafdacPromise,
     backendPromise,
     offPromise,
     upcPromise,
     emdexPromise,
-    webHitPromise,
   ]);
 
+  let webHit: Awaited<ReturnType<typeof lookupLiveGtinWeb>> = null;
   let backendData = rawBackendData;
 
   // Filter out false-positive "Already Purchased" alarms on standard mass-produced commercial retail barcodes
@@ -1176,7 +1177,7 @@ export async function verifyScanOnline(
 
   // Priority 1: GS1 Nigeria Official Registry
   if (gs1Hit && !isGenericProductName(gs1Hit.productName)) {
-    const img = webHit?.imageUrl || offHit?.imageUrl || (await fetchProductImageUrl(`${gs1Hit.brand} ${gs1Hit.productName}`));
+    const img = offHit?.imageUrl || (await fetchProductImageUrl(`${gs1Hit.brand} ${gs1Hit.productName}`));
     syncToBackend(gs1Hit.productName, gs1Hit.brand, gs1Hit.batch, img || undefined);
     return {
       status: 'AUTHENTIC',
@@ -1235,7 +1236,6 @@ export async function verifyScanOnline(
       backendData.image_url =
         offHit?.imageUrl ||
         upcHit?.imageUrl ||
-        webHit?.imageUrl ||
         cachedRealScan?.imageUrl ||
         (await fetchProductImageUrl(backendData.product_name));
     }
@@ -1293,6 +1293,7 @@ export async function verifyScanOnline(
   }
 
   // Priority 6: OpenAI gpt-4o-mini Vision + Web Search, Groq Browser Search, & GTIN Registry
+  webHit = await webHitPromise;
   if (webHit && !isGenericProductName(webHit.productName)) {
     const finalName = cleanProductName(webHit.productName);
     const finalBrand = cleanProductName(webHit.brand);

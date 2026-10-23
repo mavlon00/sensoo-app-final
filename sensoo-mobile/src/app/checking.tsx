@@ -97,33 +97,16 @@ export default function CheckingScreen() {
         return { ok: false, data: null };
       });
 
-    // Step progression animation timers
-    const timer1 = setTimeout(() => { if (isMounted) setCurrentStep(2); }, 600);
-    const timer2 = setTimeout(() => { if (isMounted) setCurrentStep(3); }, 1300);
-    const timer3 = setTimeout(() => { if (isMounted) setCurrentStep(4); }, 2000);
-    const timer4 = setTimeout(() => {
-      if (!isMounted) return;
-      setCurrentStep(5);
-      setIsFinished(true);
+    // Step progression animation timers:
+    // Step 1: Reading details -> completes at 500ms
+    const timer1 = setTimeout(() => { if (isMounted) setCurrentStep(2); }, 500);
+    // Step 2: Checking trusted database -> completes at 1100ms
+    const timer2 = setTimeout(() => { if (isMounted) setCurrentStep(3); }, 1100);
 
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.08,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1.0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }, 2600);
+    // Minimum pacing so Step 1 & Step 2 are smoothly perceived before Step 3 completes
+    const minPacingPromise = new Promise((resolve) => setTimeout(resolve, 1200));
 
-    // Coordinate minimum animation duration with real server response
-    const minAnimPromise = new Promise((resolve) => setTimeout(resolve, 2900));
-
-    Promise.all([apiPromise, minAnimPromise]).then(async ([apiResult]) => {
+    Promise.all([apiPromise, minPacingPromise]).then(async ([apiResult]) => {
       if (!isMounted) return;
 
       const apiResponse = apiResult.ok && apiResult.data ? apiResult.data : null;
@@ -136,6 +119,9 @@ export default function CheckingScreen() {
         });
         return;
       }
+
+      // Step 3 (Analyzing manufacturer data) completes -> Move to Step 4 (Looking for counterfeit signals)
+      setCurrentStep(4);
 
       let scenario:
         | 'COUNTERFEIT'
@@ -267,6 +253,32 @@ export default function CheckingScreen() {
         time: now,
       }).catch(console.warn);
 
+      // Give Step 4 ("Looking for counterfeit signals") an authentic brief validation moment (~350ms)
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      if (!isMounted) return;
+
+      // Step 4 completes -> All steps done (Step 5)
+      setCurrentStep(5);
+      setIsFinished(true);
+
+      // Pulse animation on the center circle
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.08,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1.0,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      // Brief transition delay so user perceives the complete checkmark before routing
+      await new Promise((resolve) => setTimeout(resolve, 280));
+      if (!isMounted) return;
+
       // Navigate smoothly with real server parameters
       if (params.origin === 'chat') {
         router.replace({
@@ -307,8 +319,6 @@ export default function CheckingScreen() {
       isMounted = false;
       clearTimeout(timer1);
       clearTimeout(timer2);
-      clearTimeout(timer3);
-      clearTimeout(timer4);
     };
   }, [scannedCode, router]);
 
