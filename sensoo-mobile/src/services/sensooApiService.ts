@@ -625,63 +625,7 @@ export async function lookupLiveGtinWeb(
       return null;
     })();
 
-    // Subtask 2: OpenAI gpt-4o-mini Catalog & Knowledge Base Lookup
-    const nativeResponsesSubtask = (async () => {
-      try {
-        const ctrl = new AbortController();
-        const timeout = setTimeout(() => ctrl.abort(), 8000);
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${openAiKey}`,
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            response_format: { type: 'json_object' },
-            temperature: 0.1,
-            messages: [
-              {
-                role: 'system',
-                content: 'You are an authoritative global and Nigerian product barcode registry verifier (NAFDAC, GS1 Nigeria, EMDEX, retail catalogs). Always return valid JSON.',
-              },
-              {
-                role: 'user',
-                content: `Identify the commercial product or medicine for barcode ${variantQueryText}. If this barcode belongs to a known beverage, pharmaceutical, cosmetic, or consumer product (such as Nigerian brands like Eva Water, Panadol, Peak Milk, Emzor, Maltina, Indomie, etc.), return: {"found": true, "productName": "Exact Brand & Product Name", "brand": "Manufacturer Name", "category": "Product Category", "nafdac": "NAFDAC number if known"}. If completely unidentifiable, return {"found": false}.`,
-              },
-            ],
-          }),
-          signal: ctrl.signal,
-        });
-        clearTimeout(timeout);
-
-        if (res.ok) {
-          const data = await res.json();
-          const text = data.choices?.[0]?.message?.content;
-          if (text) {
-            const parsed = JSON.parse(text);
-            const pName = parsed.productName || parsed.product_name;
-            if (parsed.found && pName && !pName.toLowerCase().includes('unknown') && !isGenericProductName(pName)) {
-              return {
-                productName: String(pName).trim(),
-                brand: String(parsed.brand || 'Verified Brand').trim(),
-                batch: isNigerianBarcode ? `GS1NG-${primary13.slice(-6)}` : `GTIN-${primary13}`,
-                category: parsed.category || 'Consumer Retail Goods',
-                status: 'AUTHENTIC',
-                origin: isNigerianBarcode ? 'Nigeria' : undefined,
-                nafdac: parsed.nafdac || undefined,
-              };
-            }
-          }
-        }
-      } catch {
-        // Ignore
-      }
-      return null;
-    })();
-
-    const [braveHit, nativeHit] = await Promise.all([braveOpenAiSubtask, nativeResponsesSubtask]);
-    return braveHit || nativeHit;
+    return await braveOpenAiSubtask;
   })();
 
   // Task B: Groq Live Browser Search (openai/gpt-oss-20b with built-in browser_search tool — 12s timeout)
@@ -743,9 +687,9 @@ export async function lookupLiveGtinWeb(
     if (!geminiKey) return null;
     try {
       const searchHint = isNigerianBarcode
-        ? `This is a Nigerian GS1 barcode (prefix 615). Search Nigerian registered pharmacies (Medplus, HealthPlus, KunleAra, Mopheth, DrugStoc), NAFDAC Greenbook, EMDEX, GS1 Nigeria, and supermarkets for exact barcode ${variantQueryText}.`
+        ? `This is a Nigerian GS1 barcode (prefix 615). Search Nigerian registered pharmacies (Medplus, HealthPlus, KunleAra, Mopheth, DrugStoc), NAFDAC Greenbook, EMDEX, GS1 Nigeria, and retail catalogs for exact barcode ${variantQueryText}.`
         : isCocaColaHbc
-        ? `This is a Nigerian Bottling Company / Coca-Cola HBC barcode (prefix 5449000, such as Eva Water, Coca-Cola, Fanta, Sprite, Schweppes, Predator). Search for the exact barcode ${variantQueryText} to find the exact drink/water bottle.`
+        ? `This is a Coca-Cola HBC / NBC barcode (prefix 5449000). Use live Google Search to find the exact beverage, juice, or bottled water for barcode ${variantQueryText}.`
         : `Search Nigerian registered pharmacies (Medplus, HealthPlus, KunleAra, Mopheth, DrugStoc), NAFDAC Greenbook, EMDEX, and global retail catalogs for exact barcode/EAN/UPC ${variantQueryText}.`;
 
       const gSearchCtrl = new AbortController();
@@ -761,7 +705,7 @@ export async function lookupLiveGtinWeb(
                 role: 'user',
                 parts: [
                   {
-                    text: `${searchHint}\nIdentify the real-world commercial product, pharmaceutical drug, beverage, cosmetic, or retail good for barcode ${variantQueryText}. Use search results and your knowledge of Nigerian registered brands, NAFDAC, GS1, EMDEX, and international products.\nReply with ONLY a valid JSON object: {"found": true, "productName": "Exact Brand & Product Name", "brand": "Manufacturer or Brand Name", "category": "Product Category"} or {"found": false} if completely unknown.`,
+                    text: `${searchHint}\nStrictly identify the real-world commercial product, pharmaceutical drug, beverage, cosmetic, or retail good for barcode ${variantQueryText} ONLY from live Google Search results. Never guess or hallucinate any brand if not confirmed by search results.\nReply with ONLY a valid JSON object: {"found": true, "productName": "Exact Brand & Product Name", "brand": "Manufacturer or Brand Name", "category": "Product Category"} or {"found": false} if completely unknown.`,
                   },
                 ],
               },
