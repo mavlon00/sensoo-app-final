@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { setLastCapturedScanFrame } from '../services/sensooApiService';
+import { setLastCapturedScanFrame, validateGs1Barcode } from '../services/sensooApiService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const RETICLE_SIZE = Math.min(SCREEN_WIDTH * 0.72, 270);
@@ -47,6 +47,7 @@ export default function ScannerScreen() {
   const resetTimerRef = useRef<any>(null);
   const activeCodeRef = useRef<string | null>(null);
   const isLockedRef = useRef(false);
+  const frameFrequencyRef = useRef<Map<string, number>>(new Map());
 
   const STABILIZATION_MS = 2200; // 2.2 seconds hold steady
 
@@ -56,6 +57,7 @@ export default function ScannerScreen() {
     if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
     lockAnim.setValue(0);
     activeCodeRef.current = null;
+    frameFrequencyRef.current.clear();
     setStabilizingCode(null);
     setCountdownRemaining(2);
   }, [lockAnim]);
@@ -118,12 +120,8 @@ export default function ScannerScreen() {
   const startStabilization = (code: string) => {
     if (isLockedRef.current) return;
 
-    // If already stabilizing, update code if the new read is longer (e.g. 13 digits vs 12 digits)
-    if (activeCodeRef.current) {
-      if (code.length > activeCodeRef.current.length) {
-        activeCodeRef.current = code;
-        setStabilizingCode(code);
-      }
+    // If countdown is already running, consensus tracking in handleBarcodeScanned updates activeCodeRef smoothly
+    if (lockTimeoutRef.current) {
       return;
     }
 
@@ -165,14 +163,23 @@ export default function ScannerScreen() {
       setCountdownRemaining(1);
     }, 1100);
 
-    // Lock-in completion
+    // Lock-in completion: select absolute consensus winner across all collected frames
     lockTimeoutRef.current = setTimeout(() => {
       setIsLocked(true);
       isLockedRef.current = true;
       setCountdownRemaining(0);
-      const codeToCommit = activeCodeRef.current || code;
+
+      let consensusWinner = activeCodeRef.current || code;
+      let highestCount = 0;
+      for (const [candidate, count] of frameFrequencyRef.current.entries()) {
+        if (count > highestCount) {
+          highestCount = count;
+          consensusWinner = candidate;
+        }
+      }
+
       setTimeout(() => {
-        navigateToChecking(codeToCommit);
+        navigateToChecking(consensusWinner);
       }, 350);
     }, STABILIZATION_MS);
   };
@@ -187,6 +194,15 @@ export default function ScannerScreen() {
       clean = `0${clean}`;
     }
 
+    // Checksum Gate: If pure 12-14 digits, reject invalid glare reads immediately
+    // Glare-corrupted frames (e.g. 8904035170773 vs 8904035427073) fail check digit and are discarded!
+    if (/^\d{12,14}$/.test(clean)) {
+      const gs1 = validateGs1Barcode(clean);
+      if (!gs1.isValid) {
+        return;
+      }
+    }
+
     // Postpone decay as long as barcode is actively visible
     if (resetTimerRef.current) {
       clearTimeout(resetTimerRef.current);
@@ -197,7 +213,24 @@ export default function ScannerScreen() {
       cancelStabilization();
     }, 900);
 
-    startStabilization(clean);
+    // Track frame frequency for multi-frame consensus
+    const prevCount = frameFrequencyRef.current.get(clean) || 0;
+    frameFrequencyRef.current.set(clean, prevCount + 1);
+
+    // Update active code to the highest-confidence majority consensus candidate
+    let consensusWinner = clean;
+    let highestCount = 0;
+    for (const [candidate, count] of frameFrequencyRef.current.entries()) {
+      if (count > highestCount) {
+        highestCount = count;
+        consensusWinner = candidate;
+      }
+    }
+
+    activeCodeRef.current = consensusWinner;
+    setStabilizingCode(consensusWinner);
+
+    startStabilization(consensusWinner);
   };
 
   const handleRequestPermission = async () => {
