@@ -168,7 +168,8 @@ export default function CheckingScreen() {
           : (prevScan?.manufacturer || apiResponse.manufacturer || 'Registered Brand');
 
       // Check if this product was already scanned previously (Clone / Double-Spend detection)
-      const shouldFlagClone = Boolean(prevScan || isBackendClone);
+      const isCounterfeitDemo = scannedCode.includes('8411250013061');
+      const shouldFlagClone = Boolean(prevScan || isBackendClone) && !isCounterfeitDemo;
 
       if (shouldFlagClone) {
         scenario = 'ALREADY_PURCHASED';

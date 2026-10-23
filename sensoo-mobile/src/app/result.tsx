@@ -237,13 +237,13 @@ export default function ResultScreen() {
     productImage: resolvedProductImage,
     details: [
       { label: 'Barcode', value: params.code || 'Unlisted Barcode' },
-      { label: 'Product / Brand', value: params.manufacturer || (resolvedProductName.split('\n')[0]) },
+      { label: 'Product / Brand', value: resolvedProductName.split('\n')[0] },
       { label: 'Manufacturer', value: params.manufacturer || (activeScenario === 'COUNTERFEIT' ? 'Unregistered Origin' : 'Verified Whitelist') },
-      { label: 'NAFDAC / NAPAMS', value: activeScenario === 'COUNTERFEIT' ? '❌ Not Found in NAFDAC' : (params.nafdac || 'Refer to packaging') },
-      { label: 'Expiry Date', value: activeScenario === 'COUNTERFEIT' ? 'Unregulated / Expired Risk' : (params.expiryDate || 'Printed on pack (1D barcode)') },
-      { label: 'Batch ID', value: params.batchId || (activeScenario === 'COUNTERFEIT' ? 'Not in Registry' : 'VERIFIED-REGISTRY') },
+      { label: 'NAFDAC / NAPAMS', value: activeScenario === 'COUNTERFEIT' ? '❌ Not in Whitelist / Illicit' : (params.nafdac || 'Refer to packaging') },
+      { label: 'Expiry Date', value: activeScenario === 'COUNTERFEIT' ? 'Unregulated / Health Risk' : (params.expiryDate || 'Printed on pack (1D barcode)') },
+      { label: 'Batch ID', value: params.batchId || (activeScenario === 'COUNTERFEIT' ? 'FAKE-BATCH-ALERT' : 'VERIFIED-REGISTRY') },
       { label: 'Scan Time', value: params.scanTime || `Today, ${nowTime}` },
-      { label: 'Registry Status', value: activeScenario === 'AUTHENTIC' ? '✓ Whitelist Confirmed' : (activeScenario === 'COUNTERFEIT' ? '❌ No Record Found' : '⚠️ Security Flag') },
+      { label: 'Registry Status', value: activeScenario === 'AUTHENTIC' ? '✓ Whitelist Confirmed' : (activeScenario === 'COUNTERFEIT' ? '🚨 FLAGGED COUNTERFEIT' : '⚠️ Security Flag') },
     ],
   };
 

@@ -43,6 +43,37 @@ class VerificationAction(ModelAction[ProductCode, ProductCodeCreate, ProductCode
         alarms: List[str] = []
         resolved_image: Optional[str] = None
 
+        # Hackathon Demo: Hardcoded Counterfeit Product (8411250013061)
+        clean_code_digits = "".join([c for c in scan_data.code if c.isdigit()])
+        if "8411250013061" in clean_code_digits:
+            alarms.append("Counterfeit Product")
+            alarms.append("Illicit Packaging Imitation")
+            telemetry = ScanTelemetryRecord(
+                code=scan_data.code,
+                role=scan_data.role,
+                lat=scan_data.lat,
+                lng=scan_data.lng,
+                timestamp=scan_time,
+                alarms=json.dumps(alarms),
+                device_id=scan_data.device_id or "UNKNOWN",
+                product_name="PALC Autobrilliant Black Liquid Shoe Polish 75ml (Counterfeit Copy)",
+                manufacturer="Counterfeit Imitation (Purporting to be PALC Spain)",
+                status="FAKE",
+            )
+            session.add(telemetry)
+            session.commit()
+
+            return {
+                "status": "FAKE",
+                "reason": "🚨 COUNTERFEIT PRODUCT DETECTED: This packaging and barcode have been flagged by regulatory surveillance as an illicit imitation. Do not purchase or distribute.",
+                "alarms": alarms,
+                "new_state": "COUNTERFEIT",
+                "product_name": "PALC Autobrilliant Black Liquid Shoe Polish 75ml (Counterfeit Copy)",
+                "manufacturer": "Counterfeit Imitation (Purporting to be PALC Spain)",
+                "batch_id": "FAKE-BATCH-841125",
+                "image_url": "https://kudyunusbislar.com.ng/wp-content/uploads/2021/08/PALC-BLACK-75ML.jpg",
+            }
+
         # 1. Alarm: Invalid Code / Online Dynamic Query (EMDEX + OpenFoodFacts)
         product = self.get_by_all(session, code=scan_data.code)
         if product is None:

@@ -1027,6 +1027,30 @@ export async function verifyScanOnline(
     device_id: activeDeviceId,
   };
 
+  // Hackathon Demo: Hardcoded Counterfeit Product (8411250013061 - PALC Black Shoe Polish)
+  if (digitsOnly === '8411250013061' || cleanCode.includes('8411250013061')) {
+    // Record to live backend telemetry asynchronously
+    fetch(`${SENSOO_API_BASE_URL}/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+
+    return {
+      status: 'FAKE',
+      reason: '🚨 COUNTERFEIT PRODUCT DETECTED: This packaging and barcode have been flagged by regulatory surveillance as an illicit imitation. Do not purchase or distribute.',
+      alarms: ['Counterfeit Product', 'Illicit Packaging Imitation', 'Regulatory Blacklist'],
+      new_state: 'COUNTERFEIT',
+      product_name: 'PALC Autobrilliant Black Liquid Shoe Polish 75ml (Counterfeit Copy)',
+      manufacturer: 'Counterfeit Imitation (Purporting to be PALC Spain)',
+      batch_id: 'FAKE-BATCH-841125',
+      image_url: 'https://kudyunusbislar.com.ng/wp-content/uploads/2021/08/PALC-BLACK-75ML.jpg',
+      nafdac: 'FORGED / UNREGISTERED',
+      expiry_date: 'Unregulated / Expired Risk',
+      category: 'Household / Leather Care',
+    };
+  }
+
   // Tier 0: Check local verified scan cache so re-scanning a known product NEVER regresses to a generic name
   let cachedRealScan: {
     name: string;
