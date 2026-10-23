@@ -181,22 +181,17 @@ export default function CheckingScreen() {
           ? apiResponse.manufacturer
           : (prevScan?.manufacturer || apiResponse.manufacturer || 'Registered Brand');
 
-      // Only serialized security codes (SNS-...) or explicit clone serials trigger duplicate ALREADY_PURCHASED alert.
-      // Standard commercial retail EAN barcodes (e.g. bread, water) are mass-produced batch codes, not single-use serials!
-      const isSingleUseSerial =
-        scannedCode.startsWith('SNS-') ||
-        scannedCode.toUpperCase().includes('CLONE') ||
-        scannedCode.length > 15;
-      const shouldFlagClone = isSingleUseSerial && (isBackendClone || !!prevScan);
+      // Check if this product was already scanned previously (Clone / Double-Spend detection)
+      const shouldFlagClone = Boolean(prevScan || isBackendClone);
 
       if (shouldFlagClone) {
         scenario = 'ALREADY_PURCHASED';
         verdictStatus = 'ALREADY_PURCHASED';
-        const scanCity = prevScan?.location || 'Eket';
+        const scanCity = prevScan?.location || 'Current Location';
         const scanTime = prevScan?.time || 'earlier today';
         resolvedName = preferredName;
         resolvedBrand = preferredBrand;
-        resolvedReason = `🚨 CLONE DETECTED: This unique serialized item was already purchased and scanned in ${scanCity} at ${scanTime}. High probability of cloned packaging or duplicate barcode reuse.`;
+        resolvedReason = `🚨 CLONE DETECTED: This product was already scanned and verified in ${scanCity} (${scanTime}). High probability of cloned packaging or duplicate barcode reuse.`;
       } else if (apiResponse.status === 'AUTHENTIC') {
         scenario = 'AUTHENTIC';
         verdictStatus = 'GENUINE';

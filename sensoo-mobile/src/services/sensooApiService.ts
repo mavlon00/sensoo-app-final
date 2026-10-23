@@ -488,7 +488,7 @@ export async function lookupLiveGtinWeb(
   const geminiKey = getGeminiApiKey();
   const frameBase64 = getLastCapturedScanFrame(digits);
 
-  // Task A1: OpenAI Live Camera Frame Vision OCR (gpt-4.1-mini reads the physical bottle/box/blister/label in ~1.5s)
+  // Task A1: OpenAI Live Camera Frame Vision OCR (gpt-4o-mini reads the physical bottle/box/blister/label in ~1.5s)
   const openAiVisionTask = (async () => {
     if (!openAiKey || !frameBase64) return null;
     try {
@@ -501,7 +501,7 @@ export async function lookupLiveGtinWeb(
           Authorization: `Bearer ${openAiKey}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4.1-mini',
+          model: 'gpt-4o-mini',
           response_format: { type: 'json_object' },
           temperature: 0.0,
           messages: [
@@ -555,7 +555,7 @@ export async function lookupLiveGtinWeb(
   const openAiSearchTask = (async () => {
     if (!openAiKey) return null;
 
-    // Subtask 1: Brave Search index -> OpenAI gpt-4.1-mini structured JSON extraction
+    // Subtask 1: Brave Search index -> OpenAI gpt-4o-mini structured JSON extraction
     const braveOpenAiSubtask = (async () => {
       try {
         const bCtrl = new AbortController();
@@ -590,7 +590,7 @@ export async function lookupLiveGtinWeb(
             Authorization: `Bearer ${openAiKey}`,
           },
           body: JSON.stringify({
-            model: 'gpt-4.1-mini',
+            model: 'gpt-4o-mini',
             response_format: { type: 'json_object' },
             temperature: 0.0,
             messages: [
@@ -625,21 +625,31 @@ export async function lookupLiveGtinWeb(
       return null;
     })();
 
-    // Subtask 2: Native OpenAI /v1/responses with web_search_preview tool
+    // Subtask 2: OpenAI gpt-4o-mini Catalog & Knowledge Base Lookup
     const nativeResponsesSubtask = (async () => {
       try {
         const ctrl = new AbortController();
-        const timeout = setTimeout(() => ctrl.abort(), 12000);
-        const res = await fetch('https://api.openai.com/v1/responses', {
+        const timeout = setTimeout(() => ctrl.abort(), 8000);
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${openAiKey}`,
           },
           body: JSON.stringify({
-            model: 'gpt-4.1-mini',
-            tools: [{ type: 'web_search_preview', search_context_size: 'low' }],
-            input: `Search Nigerian registered pharmacies (Medplus, HealthPlus, DrugStoc, KunleAra, Mopheth), NAFDAC Greenbook, EMDEX Nigeria, GS1 Nigeria, Supermart.ng, Jumia, and barcode catalogs for barcode ${variantQueryText}. If this is a pharmaceutical drug, medicine, healthcare product, or consumer retail good, identify the exact product name. Reply with ONLY valid JSON: {"found": true, "productName": "Exact Brand & Product Name", "brand": "Manufacturer or Brand Name", "category": "Pharmaceuticals / Healthcare / Retail", "nafdac": "NAFDAC number if found"} or {"found": false}.`,
+            model: 'gpt-4o-mini',
+            response_format: { type: 'json_object' },
+            temperature: 0.1,
+            messages: [
+              {
+                role: 'system',
+                content: 'You are an authoritative global and Nigerian product barcode registry verifier (NAFDAC, GS1 Nigeria, EMDEX, retail catalogs). Always return valid JSON.',
+              },
+              {
+                role: 'user',
+                content: `Identify the commercial product or medicine for barcode ${variantQueryText}. If this barcode belongs to a known beverage, pharmaceutical, cosmetic, or consumer product (such as Nigerian brands like Eva Water, Panadol, Peak Milk, Emzor, Maltina, Indomie, etc.), return: {"found": true, "productName": "Exact Brand & Product Name", "brand": "Manufacturer Name", "category": "Product Category", "nafdac": "NAFDAC number if known"}. If completely unidentifiable, return {"found": false}.`,
+              },
+            ],
           }),
           signal: ctrl.signal,
         });
@@ -647,11 +657,9 @@ export async function lookupLiveGtinWeb(
 
         if (res.ok) {
           const data = await res.json();
-          const msgItem = (data.output || []).find((o: any) => o.type === 'message');
-          const rawText = data.output_text || msgItem?.content?.[0]?.text || '';
-          const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
+          const text = data.choices?.[0]?.message?.content;
+          if (text) {
+            const parsed = JSON.parse(text);
             const pName = parsed.productName || parsed.product_name;
             if (parsed.found && pName && !pName.toLowerCase().includes('unknown') && !isGenericProductName(pName)) {
               return {
@@ -743,7 +751,7 @@ export async function lookupLiveGtinWeb(
       const gSearchCtrl = new AbortController();
       const gSearchTimeout = setTimeout(() => gSearchCtrl.abort(), 10000);
       const gSearchRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -753,7 +761,7 @@ export async function lookupLiveGtinWeb(
                 role: 'user',
                 parts: [
                   {
-                    text: `${searchHint}\nCRITICAL RULE: NEVER guess or invent a product name from the 3-digit GS1 country or company prefix alone! Only return "found": true if the exact barcode ${variantQueryText} is matched in search results.\nReply with ONLY a valid JSON object (no markdown fences): {"found": true, "productName": "Exact Brand & Product Name", "brand": "Manufacturer or Brand Name", "category": "Product Category"} or {"found": false} if not found.`,
+                    text: `${searchHint}\nIdentify the real-world commercial product, pharmaceutical drug, beverage, cosmetic, or retail good for barcode ${variantQueryText}. Use search results and your knowledge of Nigerian registered brands, NAFDAC, GS1, EMDEX, and international products.\nReply with ONLY a valid JSON object: {"found": true, "productName": "Exact Brand & Product Name", "brand": "Manufacturer or Brand Name", "category": "Product Category"} or {"found": false} if completely unknown.`,
                   },
                 ],
               },
@@ -761,7 +769,6 @@ export async function lookupLiveGtinWeb(
             tools: [{ google_search: {} }],
             generationConfig: {
               temperature: 0.0,
-              thinkingConfig: { thinkingBudget: 0 },
             },
           }),
           signal: gSearchCtrl.signal,
@@ -796,14 +803,14 @@ export async function lookupLiveGtinWeb(
     return null;
   })();
 
-  // Task C2: Gemini 2.5 Flash Live Camera Frame Vision OCR
+  // Task C2: Gemini 3.8 Flash Live Camera Frame Vision OCR
   const geminiVisionTask = (async () => {
     if (!geminiKey || !frameBase64) return null;
     try {
       const vCtrl = new AbortController();
       const vTimeout = setTimeout(() => vCtrl.abort(), 10000);
       const vRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1081,6 +1088,9 @@ export async function verifyScanOnline(
     reason?: string;
   } | null = null;
 
+  let isRepeatScan = false;
+  let repeatScanTime = '';
+
   try {
     const stored = await getStoredScans();
     const match = (stored || []).find(
@@ -1098,13 +1108,22 @@ export async function verifyScanOnline(
         reason: match.reason,
       };
     }
+    const prior = (stored || []).find(
+      (s) =>
+        s.code.trim().toUpperCase() === cleanCode.toUpperCase() &&
+        Date.now() - new Date(s.timestamp).getTime() > 3000
+    );
+    if (prior) {
+      isRepeatScan = true;
+      repeatScanTime = prior.time || 'earlier today';
+    }
   } catch {
     // Continue
   }
 
-  // If this is a standard commercial barcode that was ALREADY resolved to a real product on this phone,
-  // record the telemetry scan in the background and return the verified product immediately!
-  if (!isSingleUseSerial && cachedRealScan) {
+  // If this product was ALREADY resolved and verified previously on this phone,
+  // return product details with clone alert on repeated scan!
+  if (isRepeatScan && cachedRealScan) {
     fetch(`${SENSOO_API_BASE_URL}/scan`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1112,10 +1131,10 @@ export async function verifyScanOnline(
     }).catch(() => {});
 
     return {
-      status: 'AUTHENTIC',
-      reason: cachedRealScan.reason || 'Verified in Official Manufacturer & GS1 Product Registry',
-      alarms: [],
-      new_state: 'IN_STOCK',
+      status: 'FAKE',
+      reason: `🚨 CLONE DETECTED: This product was already verified on this device (${repeatScanTime}). High probability of duplicate or cloned packaging.`,
+      alarms: ['Already Purchased (clone detection)'],
+      new_state: 'PURCHASED_RETIRED',
       product_name: cachedRealScan.name,
       manufacturer: cachedRealScan.manufacturer || 'Verified Manufacturer',
       batch_id: cachedRealScan.batchId || `GTIN-${digitsOnly.slice(-6) || 'VERIFIED'}`,
@@ -1329,7 +1348,7 @@ export async function verifyScanOnline(
     };
   }
 
-  // Priority 6: OpenAI gpt-4.1-mini Vision + Web Search, Groq Browser Search, & GTIN Registry
+  // Priority 6: OpenAI gpt-4o-mini Vision + Web Search, Groq Browser Search, & GTIN Registry
   if (webHit && !isGenericProductName(webHit.productName)) {
     const finalName = cleanProductName(webHit.productName);
     const finalBrand = cleanProductName(webHit.brand);

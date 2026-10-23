@@ -33,8 +33,8 @@ const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
 const HF_NATLAS_MODEL = process.env.EXPO_PUBLIC_HF_NATLAS_MODEL || 'NCAIR1/N-ATLaS';
 const HF_API_TOKEN = process.env.EXPO_PUBLIC_HF_API_TOKEN || '';
 
-export const PRIMARY_MODEL = 'gemini-2.5-flash';
-export const FALLBACK_MODEL = 'gemini-2.5-flash-lite';
+export const PRIMARY_MODEL = 'gemini-3.8-flash';
+export const FALLBACK_MODEL = 'gemini-3.5-flash-lite';
 export const SOVEREIGN_NATLAS_MODEL = 'NCAIR1/N-ATLaS';
 
 const SYSTEM_INSTRUCTION = `You are Sensoo Agentic AI, Nigeria's frontline consumer verification, clinical safety, and anti-counterfeit intelligence system.
