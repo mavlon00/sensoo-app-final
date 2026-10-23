@@ -458,11 +458,15 @@ export default function HomeScreen() {
 
     try {
       setIsCheckingAppUpdate(true);
+      const activeId = Updates.updateId ? Updates.updateId.slice(0, 8) : (Updates.isEmbeddedLaunch ? 'Embedded Base' : 'Initial');
+      const activeChannel = Updates.channel || 'preview';
+      const activeTime = Updates.createdAt ? new Date(Updates.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Base APK';
+
       const check = await Updates.checkForUpdateAsync();
       if (check.isAvailable) {
         Alert.alert(
-          'Update Found!',
-          'A new version of Sensoo is ready to install. Download and restart now?',
+          'Update Found! 🚀',
+          `A new update is available on channel "${activeChannel}".\n\nActive: ${activeId} (${activeTime})\n\nDownload and restart now?`,
           [
             { text: 'Later', style: 'cancel' },
             {
@@ -484,13 +488,41 @@ export default function HomeScreen() {
       } else {
         Alert.alert(
           'Up to Date ✓',
-          'You are already running the latest version of Sensoo (Release 1.0.0).'
+          `Your app is running the latest update on channel "${activeChannel}".\n\nActive Update: ${activeId}\nDeployed: ${activeTime}\n\nWould you like to force reload the bundle?`,
+          [
+            { text: 'OK', style: 'cancel' },
+            {
+              text: 'Force Reload App',
+              onPress: async () => {
+                try {
+                  setIsCheckingAppUpdate(true);
+                  await Updates.reloadAsync();
+                } catch (e) {
+                  Alert.alert('Reload Error', 'Could not reload bundle.');
+                } finally {
+                  setIsCheckingAppUpdate(false);
+                }
+              },
+            },
+          ]
         );
       }
     } catch (err: any) {
+      const activeId = Updates.updateId ? Updates.updateId.slice(0, 8) : 'Embedded';
       Alert.alert(
-        'Check Failed',
-        'Unable to reach update servers. Please check your internet connection.'
+        'Update Check',
+        `Unable to reach update servers. Check your internet connection.\n\nCurrent Active: ${activeId}`,
+        [
+          { text: 'OK', style: 'cancel' },
+          {
+            text: 'Force Reload App',
+            onPress: async () => {
+              try {
+                await Updates.reloadAsync();
+              } catch {}
+            },
+          },
+        ]
       );
     } finally {
       setIsCheckingAppUpdate(false);
@@ -1802,7 +1834,11 @@ export default function HomeScreen() {
                     </View>
                   </View>
                   <Text style={styles.profileMenuSubtitle}>
-                    {isCheckingAppUpdate ? 'Connecting to EAS servers...' : 'Release 1.0.0 • Tap to check'}
+                    {isCheckingAppUpdate
+                      ? 'Connecting to EAS servers...'
+                      : Updates.updateId
+                      ? `Release 1.0.0 (${Updates.updateId.slice(0, 8)}) • Tap to check`
+                      : 'Release 1.0.0 (Embedded) • Tap to check'}
                   </Text>
                 </View>
                 <Text style={styles.profileMenuChevron}>›</Text>
